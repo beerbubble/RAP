@@ -72,7 +72,8 @@
     "doc":"https://github.com/thx/RAP/wiki/home_cn",
     "study":"http://thx.github.io/RAP/study.html",
     "log":"$!projectContext/platform/log.do",
-    "realtimeUpdate":"$!projectContext/platform/realtimeUpdate.do"
+    "realtimeUpdate":"$!projectContext/platform/realtimeUpdate.do",
+    "teamLog":"$!projectContext/platform/teamLog.do"
 })
 #set($testerUrl = {
     "pageTester":"$projectContext/tester/pageTester.do"
@@ -80,6 +81,10 @@
 #set($teamUrl = {
     "teams" : "$projectContext/org/team/teams.do",
     "manage":"$projectContext/org/team/manage.do"
+})
+
+#set($groupUrl = {
+    "group" : "$projectContext/org/group.do"
 })
 
 #set($productlineUrl = {

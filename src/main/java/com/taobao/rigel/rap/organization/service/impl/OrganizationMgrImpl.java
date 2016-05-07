@@ -1,9 +1,10 @@
 package com.taobao.rigel.rap.organization.service.impl;
 
+import com.taobao.rigel.rap.account.bo.Role;
 import com.taobao.rigel.rap.account.bo.User;
 import com.taobao.rigel.rap.account.service.AccountMgr;
-import com.taobao.rigel.rap.common.utils.CacheUtils;
 import com.taobao.rigel.rap.common.bo.RapError;
+import com.taobao.rigel.rap.common.utils.CacheUtils;
 import com.taobao.rigel.rap.organization.bo.Corporation;
 import com.taobao.rigel.rap.organization.bo.Group;
 import com.taobao.rigel.rap.organization.bo.ProductionLine;
@@ -14,6 +15,7 @@ import com.taobao.rigel.rap.project.bo.Page;
 import com.taobao.rigel.rap.project.bo.Project;
 import com.taobao.rigel.rap.project.service.ProjectMgr;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class OrganizationMgrImpl implements OrganizationMgr {
@@ -51,9 +53,9 @@ public class OrganizationMgrImpl implements OrganizationMgr {
     }
 
 
-    public List<Corporation> getCorporationListWithPager(int pageNum, int pageSize) {
+    public List<Corporation> getCorporationListWithPager(int pageNum, int pageSize, String keyword) {
 
-        List<Corporation> list = organizationDao.getCorporationListWithPager(pageNum, pageSize);
+        List<Corporation> list = organizationDao.getCorporationListWithPager(pageNum, pageSize, keyword);
 
         for (Corporation c : list) {
             int memberNum = organizationDao.getMemberNumOfCorporation(c.getId());
@@ -65,17 +67,17 @@ public class OrganizationMgrImpl implements OrganizationMgr {
     }
 
 
-    public int getCorporationListWithPagerNum() {
-        return organizationDao.getCorporationListWithPagerNum();
+    public int getCorporationListWithPagerNum(String keyword) {
+        return organizationDao.getCorporationListWithPagerNum(keyword);
     }
 
 
-    public List<Corporation> getCorporationListWithPager(int userId, int pageNum, int pageSize) {
+    public List<Corporation> getCorporationListWithPager(int userId, int pageNum, int pageSize, String keyword) {
         User user = accountMgr.getUser(userId);
         if (user.isAdmin()) {
-            return getCorporationListWithPager(pageNum, pageSize);
+            return getCorporationListWithPager(pageNum, pageSize, keyword);
         }
-        List<Corporation> list = organizationDao.getCorporationListWithPager(userId, pageNum, pageSize);
+        List<Corporation> list = organizationDao.getCorporationListWithPager(userId, pageNum, pageSize, keyword);
         for (Corporation c : list) {
             int memberNum = organizationDao.getMemberNumOfCorporation(c.getId());
             c.setMemberNum(memberNum + 1); // +1 project creator
@@ -86,12 +88,12 @@ public class OrganizationMgrImpl implements OrganizationMgr {
     }
 
 
-    public int getCorporationListWithPagerNum(int userId) {
+    public int getCorporationListWithPagerNum(int userId, String keyword) {
         User user = accountMgr.getUser(userId);
         if (user.isAdmin()) {
-            return getCorporationListWithPagerNum();
+            return getCorporationListWithPagerNum(keyword);
         }
-        return organizationDao.getCorporationListWithPagerNum(userId);
+        return organizationDao.getCorporationListWithPagerNum(userId, keyword);
     }
 
 
@@ -188,10 +190,14 @@ public class OrganizationMgrImpl implements OrganizationMgr {
 
         User user = accountMgr.getUser(userId);
         boolean canAccess = false;
+        int corpId = organizationDao.getTeamIdByProjectId(projectId);
+        int roleId = organizationDao.getUserRoleInCorp(userId, corpId);
         Project project = projectMgr.getProjectSummary(projectId);
         if (user.isUserInRole("admin")) {
             canAccess = true;
         } else if (project.getUserId() == userId) {
+            canAccess = true;
+        } else if (Role.isAdmin(roleId)) {
             canAccess = true;
         } else {
             List<Integer> memberIdList = projectMgr.getMemberIdsOfProject(projectId);
@@ -212,13 +218,14 @@ public class OrganizationMgrImpl implements OrganizationMgr {
     public boolean canUserDeleteProject(int userId, int projectId) {
         User user = accountMgr.getUser(userId);
         Project project = projectMgr.getProjectSummary(projectId);
-        return user.isAdmin() || project.getUserId() == user.getId();
+        int corpId = getTeamIdByProjectId(projectId);
+        int roleId = organizationDao.getUserRoleInCorp(userId, corpId);
+        return user.isAdmin() || project.getUserId() == user.getId() ||  Role.isAdmin(roleId);
     }
 
     public boolean canUserManageCorp(int userId, int corpId) {
         int roleId = organizationDao.getUserRoleInCorp(userId, corpId);
-        Corporation corp = getCorporation(corpId);
-        return corp.getAccessType() == Corporation.PUBLIC_ACCESS || (roleId >= 1 && roleId <= 2 ||
+        return (Role.isAdmin(roleId) ||
                 userId == getCorporation(corpId).getUserId()) ||
                 accountMgr.getUser(userId).isAdmin();
 
@@ -232,9 +239,9 @@ public class OrganizationMgrImpl implements OrganizationMgr {
         for (User user : list) {
             int roleId = getUserRoleInCorp(user.getId(), corpId);
             if (user.isAdmin()) {
-                roleId = 1; // user is the RAP platform admin
+                roleId = Role.SUPER_ADMIN; // user is the RAP platform admin
             } else if (user.getId() == c.getUserId()) {
-                roleId = 1; // user is the author
+                roleId = Role.SUPER_ADMIN; // user is the author
             }
             user.setRoleId(roleId);
         }
@@ -287,7 +294,7 @@ public class OrganizationMgrImpl implements OrganizationMgr {
     public boolean canUserManageProductionLine(int userId, int plId) {
         ProductionLine pl = this.getProductionLine(plId);
         int corpId = pl.getCorporationId();
-        return canUserManageCorp(userId, corpId);
+        return canUserManageProductionLineList(userId, corpId);
     }
 
 
@@ -317,19 +324,29 @@ public class OrganizationMgrImpl implements OrganizationMgr {
         for (String account : team.getAccountList()) {
             if (account == null || account.trim().isEmpty()) continue;
             User u = accountMgr.getUser(account);
+
+            String [] cacheKey = new String[]{CacheUtils.KEY_CORP_LIST_TOP_ITEMS, new Integer(u.getId()).toString()};
+            CacheUtils.del(cacheKey);
+
             if (u.getId() == team.getUserId()) {
                 // if the user is creator, there's no need to add again
                 continue;
             }
             organizationDao.addUserToCorp(corpId, u.getId(), 3); // 3, normal member
         }
+
+        String [] cacheKey = new String[]{CacheUtils.KEY_CORP_LIST_TOP_ITEMS, new Integer(team.getUserId()).toString()};
+        CacheUtils.del(cacheKey);
+
         return corpId;
     }
 
 
     public boolean setUserRoleInCorp(int curUserId, int userId, int corpId, int roleId) {
-        if (canUserManageUserInCorp(curUserId, userId, corpId)) {
+        if (canUserManageCorp(curUserId, corpId)) {
             organizationDao.setUserRoleInCorp(userId, corpId, roleId);
+            String[] cacheKey = new String[]{CacheUtils.KEY_PROJECT_LIST, new Integer(userId).toString()};
+            CacheUtils.del(cacheKey);
             return true;
         } else {
             return false;
@@ -338,15 +355,11 @@ public class OrganizationMgrImpl implements OrganizationMgr {
 
 
     public boolean removeMemberFromCorp(int curUserId, int userId, int corpId) {
-        int roleId = getUserRoleInCorp(userId, corpId);
-
-        // if user can't manage team, or the user to be deleted is super admin, failed
-        if (!canUserManageCorp(curUserId, corpId) || roleId == 1) {
+        // if user can't manage team,  failed
+        if (!canUserManageCorp(curUserId, corpId)) {
             return false;
         }
-
         organizationDao.deleteMembershipFromCorp(curUserId, userId, corpId);
-
         return true;
     }
 
@@ -364,6 +377,8 @@ public class OrganizationMgrImpl implements OrganizationMgr {
                         && u.getId() != c.getUserId()) {
                     organizationDao.addUserToCorp(corpId, u.getId(), 3);
                 }
+                String [] cacheKey = new String[]{CacheUtils.KEY_CORP_LIST_TOP_ITEMS, new Integer(u.getId()).toString()};
+                CacheUtils.del(cacheKey);
             }
         }
 
@@ -372,20 +387,47 @@ public class OrganizationMgrImpl implements OrganizationMgr {
 
 
     public void updateCorporation(Corporation c) {
+        // clear cache
+
+        List<Integer> userIdList = new ArrayList<Integer>();
+        userIdList.add(c.getUserId());
+        List<User> userList = getUserLisOfCorp(c.getId());
+        for (User u : userList) {
+            userIdList.add(u.getId());
+        }
+
+        for (Integer userId : userIdList) {
+            String [] cacheKey = new String[]{CacheUtils.KEY_CORP_LIST_TOP_ITEMS, userId.toString()};
+            CacheUtils.del(cacheKey);
+        }
         organizationDao.updateCorporation(c);
     }
 
-
-    private boolean canUserManageUserInCorp(int curUserId, int userId, int corpId) {
-        User curUser = accountMgr.getUser(curUserId);
-        if (curUser.isAdmin()) {
-            return true;
-        }
-        int roleId = getUserRoleInCorp(curUserId, corpId);
-        if (roleId >= 1 || roleId <= 2) {
-            return true;
-        }
-        return false;
+    public int getTeamIdByProjectId(int id) {
+        return organizationDao.getTeamIdByProjectId(id);
     }
 
+    public Group getGroup(int id) {
+        return organizationDao.getGroup(id);
+    }
+
+    public int getMemberNumOfCorporation(int corpId) {
+        return organizationDao.getMemberNumOfCorporation(corpId);
+    }
+
+    public int getProjectNumOfCorporation(int corpId) {
+        return organizationDao.getProjectNumOfCorporation(corpId);
+    }
+
+    public int getActionNumOfCorporation(int corpId) {
+        return organizationDao.getActionNumOfCorporation(corpId);
+    }
+
+    public boolean canUserManageProductionLineList(int userId, int corpId) {
+        if (canUserManageCorp(userId, corpId)) {
+            return true;
+        }
+        Corporation c = getCorporation(corpId);
+        return c.getAccessType() == Corporation.PUBLIC_ACCESS;
+    }
 }

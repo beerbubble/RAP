@@ -30,6 +30,16 @@ public class TeamAction extends ActionBase {
     private OrganizationMgr organizationMgr;
     private String desc;
 
+    public String getKeyword() {
+        return keyword;
+    }
+
+    public void setKeyword(String keyword) {
+        this.keyword = keyword;
+    }
+
+    private String keyword;
+
     public Corporation getTeam() {
         return team;
     }
@@ -108,6 +118,8 @@ public class TeamAction extends ActionBase {
         team.setLogoUrl("");
         int id = organizationMgr.addTeam(team);
         setJson("{\"id\":" + id + "}");
+        String [] cacheKey = new String[]{CacheUtils.KEY_CORP_LIST, new Integer(getCurUserId()).toString()};
+        CacheUtils.del(cacheKey);
         return SUCCESS;
     }
 
@@ -118,8 +130,8 @@ public class TeamAction extends ActionBase {
             return LOGIN;
         }
         int userId = getCurUserId();
-        teamList = organizationMgr.getCorporationListWithPager(userId, getPageNum(), SystemConstant.DEFAULT_PAGE_SIZE);
-        teamListNum = organizationMgr.getCorporationListWithPagerNum(userId);
+        teamList = organizationMgr.getCorporationListWithPager(userId, getPageNum(), SystemConstant.DEFAULT_PAGE_SIZE, keyword);
+        teamListNum = organizationMgr.getCorporationListWithPagerNum(userId, keyword);
         return SUCCESS;
     }
 

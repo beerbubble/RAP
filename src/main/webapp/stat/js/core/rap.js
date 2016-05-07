@@ -2610,7 +2610,7 @@ function deepCopy(o) {
             //}
         }
         if (empty) {
-            $('#actionOpFloater-page').append($("<option/>").attr("value", -1).text('木有可移动的页面'));
+            $('#actionOpFloater-page').append($("<option/>").attr("value", "").text('木有可移动的页面'));
         }
     };
 
@@ -2623,7 +2623,7 @@ function deepCopy(o) {
             var targetMID = +$('#actionOpFloater-tab').val();   // target module id
             var targetPID = +$('#actionOpFloater-page').val();  // target page id
             var opType = getSelectedValue('actionOpFloater-op');
-            if (targetMID && targetMID > 0 && targetPID && targetPID > 0) {
+            if (targetMID && targetPID) {
                 actionOperate(targetMID, targetPID, opType);
             } else {
                 alert('请选择目标位置哦~');
@@ -2669,6 +2669,28 @@ function deepCopy(o) {
         var action = p.getAction(actionId);
         var postData = 'actionData=' + encodeURIComponent(JSON.stringify(action));
         var me = this;
+        var eleRule = $('#mockRulePreviewFloater-mockRule');
+        var eleData = $('#mockRulePreviewFloater-mockData');
+
+
+        var ruleUrl, dataUrl;
+        var ERROR_MSG = '需先填写请求链接';
+
+        if ($.trim(action.requestUrl) == '') {
+          ruleUrl = ERROR_MSG;
+          dataUrl = ERROR_MSG;
+        } else {
+          var requestUrlRelative = getRelativeUrl(action.requestUrl);
+          ruleUrl= 'http://' + URL.base + '/mockjs/' + p.getId() +  requestUrlRelative;
+          dataUrl = 'http://' + URL.base + '/mockjsdata/' + p.getId() + requestUrlRelative;
+        }
+
+        eleRule.attr('href', ruleUrl == ERROR_MSG ? '#' : ruleUrl);
+        eleRule.html(ruleUrl);
+
+        eleData.attr('href', dataUrl == ERROR_MSG ? '#' : dataUrl);
+        eleData.html(dataUrl);
+
         $('#mockDataPreviewFloater-container').val('loading...');
         $('#mockRulePreviewFloater-container').val('loading...');
         $('.glyphicon-question-sign').tooltip();
@@ -2700,6 +2722,29 @@ function deepCopy(o) {
             console.log('Oops, unable to copy');
         }
     };
+
+
+    /**
+     * http://www.baidu.com/abc => /abc
+     * /abc => /abc
+     */
+    function getRelativeUrl(url) {
+        if (url instanceof RegExp) {
+            return url;
+        }
+        if (!url) {
+            throw Error('Illegal url:' + url);
+        }
+        if (url.indexOf('http://') > -1) {
+            url = url.substring(url.indexOf('/', 7) + 1);
+        } else if (url.indexOf('https://') > -1) {
+            url = url.substring(url.indexOf('/', 8) + 1);
+        }
+        if (url.charAt(0) != '/') {
+            url = '/' + url;
+        }
+        return url;
+    }
 
 
     /********************************************************
